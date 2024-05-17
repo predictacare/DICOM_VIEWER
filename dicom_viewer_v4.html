@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador de Imagens DICOM</title>
+    <script src="https://unpkg.com/dicom-parser/dist/dicomParser.js"></script>
+    <script src="https://unpkg.com/cornerstone-core@2.3.0/dist/cornerstone.js"></script>
+    <script src="https://unpkg.com/cornerstone-wado-image-loader@3.0.0/dist/cornerstoneWADOImageLoader.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.3.0/nouislider.min.css">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            height: 100vh;
+        }
+        #dicomImage {
+            width: 90vw;
+            height: 90vh;
+            border: 1px solid black;
+        }
+        #sliderContainer {
+            width: 90vw;
+            margin: 10px auto;
+        }
+        #ww-wl-label {
+            margin-top: 20px;
+            font-size: 18px;
+            text-align: center;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1></h1>
+    <div id="dicomImage"></div>
+    <div id="sliderContainer">
+        <div id="dicomSlider"></div>
+    </div>
+    <div id="ww-wl-label">WW/WL = 0/0</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.3.0/nouislider.min.js"></script>
+    <script>
+        // Função para obter os parâmetros da query string
+        function getQueryParams() {
+            const params = {};
+            const queryString = window.location.search.substring(1);
+            const regex = /([^&=]+)=([^&]*)/g;
+            let m;
+            while (m = regex.exec(queryString)) {
+                params[decodeURIComponent(m[1])] = decodeURIComponent(m[2]);
+            }
+            return params;
+        }
+
+        const params = getQueryParams();
+        const folderPath = params.folderPath || 'https://predictaapp.web.app/'; // Valor padrão se não for fornecido
+        console.log('folderPath:', folderPath); // Adiciona este log para verificar o valor de folderPath
+
+        // Inicialize o cornerstone
+        cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+        cornerstoneWADOImageLoader.configure({
+            beforeSend: function(xhr) {
+                // For cross-origin requests
+                xhr.setRequestHeader('Accept', 'image/jpeg');
+            }
+        });
+
+        const element = document.getElementById('dicomImage');
+        cornerstone.enable(element);
+
+        let currentImageIndex = 0;
+        const imageIds = [];
+
+        // Obter a lista de arquivos na pasta
+        fetch(folderPath)
+            .then(response => response.text())
+            .then(data => {
+                console.log('responseText:', data); // Log para verificar o texto da resposta
+                const parser = new DOMParser();
+                const htmlDoc = parser.parseFromString(data, 'text/html');
+                const links = htmlDoc.querySelectorAll('a');
+                console.log('htmlDoc:', htmlDoc.text);
+                links.forEach(link => {
+                    const href = link.getAttribute('href');
+                    if (href.endsWith('.dcm')) {
+                        imageIds.push('wadouri:' + folderPath + 'DICOM/' + href);
+                    }
+                });
+
+                // Carregar e renderizar a primeira imagem
+                loadImage(imageIds[currentImageIndex]);
+                setupSlider();
+            })
+            .catch(error => console.error('Erro ao carregar imagens DICOM:', error));
+
+        function loadImage(imageId) {
+            cornerstone.loadImage(imageId).then(function(image) {
+                cornerstone.displayImage(element, image);
+
+                // Ajustar o tamanho do canvas para ser responsivo
+                const canvas = document.querySelector('.cornerstone-canvas');
+                canvas.style.width = '100%';
+                canvas.style.height = '100%';
+
+                // Atualizar a label com os valores iniciais de WW e WL
+                const viewport = cornerstone.getViewport(element);
+                updateWwWlLabel(viewport.voi.windowWidth, viewport.voi.windowCenter);
+            }).catch(function(err) {
+                console.error('Erro ao carregar a imagem DICOM:', err);
+            });
+        }
+
+        function setupSlider() {
+            const dicomSlider = document.getElementById('dicomSlider');
+
+            noUiSlider.create(dicomSlider, {
+                start: [0],
+                range: {
+                    'min': 0,
+                    'max': imageIds.length - 1
+                },
+                step: 1,
+                connect: [true, false],
+                tooltips: [true],
+            });
+
+            dicomSlider.noUiSlider.on('slide', function(values, handle) {
+                currentImageIndex = parseInt(values[handle]);
+                loadImage(imageIds[currentImageIndex]);
+            });
+        }
+
+        // Adicionar funcionalidade de ajuste do Window Level (WL) e Largura da Janela (WW) ao clicar e arrastar o mouse
+        let isDragging = false;
+        let startX = 0;
+        let startY = 0;
+        let initialWC = 0;
+        let initialWW = 0;
+
+        const wwWlLabel = document.getElementById('ww-wl-label');
+
+        element.addEventListener('mousedown', function(event) {
+            isDragging = true;
+            startX = event.clientX;
+            startY = event.clientY;
+
+            const viewport = cornerstone.getViewport(element);
+            initialWC = viewport.voi.windowCenter;
+            initialWW = viewport.voi.windowWidth;
+
+            element.addEventListener('mousemove', onMouseMove);
+        });
+
+        element.addEventListener('mouseup', function(event) {
+            isDragging = false;
+            element.removeEventListener('mousemove', onMouseMove);
+        });
+
+        function onMouseMove(event) {
+            if (isDragging) {
+                const deltaX = startX - event.clientX;
+                const deltaY = startY - event.clientY;
+
+                const viewport = cornerstone.getViewport(element);
+                viewport.voi.windowCenter = initialWC + deltaY;
+                viewport.voi.windowWidth = initialWW + deltaX;
+                cornerstone.setViewport(element, viewport);
+
+                updateWwWlLabel(viewport.voi.windowWidth, viewport.voi.windowCenter);
+            }
+        }
+
+        function updateWwWlLabel(ww, wl) {
+            wwWlLabel.textContent = `WW/WL = ${Math.round(ww)}/${Math.round(wl)}`;
+        }
+    </script>
+</body>
+</html>
