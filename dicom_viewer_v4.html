@@ -16,6 +16,7 @@
             justify-content: center;
             margin: 0;
             height: 100vh;
+            overflow: hidden; /* Adiciona essa linha para evitar o scroll da página */
         }
         #dicomImage {
             width: 90vw;
@@ -44,7 +45,6 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.3.0/nouislider.min.js"></script>
     <script>
-        // Função para obter os parâmetros da query string
         function getQueryParams() {
             const params = {};
             const queryString = window.location.search.substring(1);
@@ -57,14 +57,11 @@
         }
 
         const params = getQueryParams();
-        const folderPath = params.folderPath || 'https://predictaapp.web.app/'; // Valor padrão se não for fornecido
-        console.log('folderPath:', folderPath); // Adiciona este log para verificar o valor de folderPath
+        const folderPath = params.folderPath || 'http://localhost:8000/';
 
-        // Inicialize o cornerstone
         cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
         cornerstoneWADOImageLoader.configure({
             beforeSend: function(xhr) {
-                // For cross-origin requests
                 xhr.setRequestHeader('Accept', 'image/jpeg');
             }
         });
@@ -75,15 +72,12 @@
         let currentImageIndex = 0;
         const imageIds = [];
 
-        // Obter a lista de arquivos na pasta
         fetch(folderPath)
             .then(response => response.text())
             .then(data => {
-                console.log('responseText:', data); // Log para verificar o texto da resposta
                 const parser = new DOMParser();
                 const htmlDoc = parser.parseFromString(data, 'text/html');
                 const links = htmlDoc.querySelectorAll('a');
-                console.log('htmlDoc:', htmlDoc.text);
                 links.forEach(link => {
                     const href = link.getAttribute('href');
                     if (href.endsWith('.dcm')) {
@@ -91,7 +85,6 @@
                     }
                 });
 
-                // Carregar e renderizar a primeira imagem
                 loadImage(imageIds[currentImageIndex]);
                 setupSlider();
             })
@@ -101,12 +94,10 @@
             cornerstone.loadImage(imageId).then(function(image) {
                 cornerstone.displayImage(element, image);
 
-                // Ajustar o tamanho do canvas para ser responsivo
                 const canvas = document.querySelector('.cornerstone-canvas');
                 canvas.style.width = '100%';
                 canvas.style.height = '100%';
 
-                // Atualizar a label com os valores iniciais de WW e WL
                 const viewport = cornerstone.getViewport(element);
                 updateWwWlLabel(viewport.voi.windowWidth, viewport.voi.windowCenter);
             }).catch(function(err) {
@@ -134,7 +125,6 @@
             });
         }
 
-        // Adicionar funcionalidade de ajuste do Window Level (WL) e Largura da Janela (WW) ao clicar e arrastar o mouse
         let isDragging = false;
         let startX = 0;
         let startY = 0;
@@ -143,27 +133,20 @@
 
         const wwWlLabel = document.getElementById('ww-wl-label');
 
-        element.addEventListener('mousedown', function(event) {
+        function startDrag(x, y) {
             isDragging = true;
-            startX = event.clientX;
-            startY = event.clientY;
+            startX = x;
+            startY = y;
 
             const viewport = cornerstone.getViewport(element);
             initialWC = viewport.voi.windowCenter;
             initialWW = viewport.voi.windowWidth;
+        }
 
-            element.addEventListener('mousemove', onMouseMove);
-        });
-
-        element.addEventListener('mouseup', function(event) {
-            isDragging = false;
-            element.removeEventListener('mousemove', onMouseMove);
-        });
-
-        function onMouseMove(event) {
+        function onMove(x, y) {
             if (isDragging) {
-                const deltaX = startX - event.clientX;
-                const deltaY = startY - event.clientY;
+                const deltaX = startX - x;
+                const deltaY = startY - y;
 
                 const viewport = cornerstone.getViewport(element);
                 viewport.voi.windowCenter = initialWC + deltaY;
@@ -173,6 +156,41 @@
                 updateWwWlLabel(viewport.voi.windowWidth, viewport.voi.windowCenter);
             }
         }
+
+        function endDrag() {
+            isDragging = false;
+        }
+
+        element.addEventListener('mousedown', function(event) {
+            startDrag(event.clientX, event.clientY);
+            element.addEventListener('mousemove', onMouseMove);
+        });
+
+        element.addEventListener('mouseup', function() {
+            endDrag();
+            element.removeEventListener('mousemove', onMouseMove);
+        });
+
+        function onMouseMove(event) {
+            onMove(event.clientX, event.clientY);
+        }
+
+        element.addEventListener('touchstart', function(event) {
+            event.preventDefault(); // Prevenir comportamento padrão
+            const touch = event.touches[0];
+            startDrag(touch.clientX, touch.clientY);
+        });
+
+        element.addEventListener('touchmove', function(event) {
+            event.preventDefault(); // Prevenir comportamento padrão
+            const touch = event.touches[0];
+            onMove(touch.clientX, touch.clientY);
+        });
+
+        element.addEventListener('touchend', function(event) {
+            event.preventDefault(); // Prevenir comportamento padrão
+            endDrag();
+        });
 
         function updateWwWlLabel(ww, wl) {
             wwWlLabel.textContent = `WW/WL = ${Math.round(ww)}/${Math.round(wl)}`;
