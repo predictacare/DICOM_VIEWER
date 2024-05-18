@@ -13,15 +13,15 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
             margin: 0;
             height: 100vh;
-            overflow: hidden; /* Adiciona essa linha para evitar o scroll da página */
+            overflow: hidden;
         }
         #dicomImage {
             width: 90vw;
-            height: 60vh;
+            height: 70vh;
             border: 1px solid black;
+            margin-top: 10px; /* Adiciona uma pequena margem superior */
         }
         #sliderContainer {
             width: 90vw;
@@ -176,19 +176,19 @@
         }
 
         element.addEventListener('touchstart', function(event) {
-            event.preventDefault(); // Prevenir comportamento padrão
+            event.preventDefault();
             const touch = event.touches[0];
             startDrag(touch.clientX, touch.clientY);
         });
 
         element.addEventListener('touchmove', function(event) {
-            event.preventDefault(); // Prevenir comportamento padrão
+            event.preventDefault();
             const touch = event.touches[0];
             onMove(touch.clientX, touch.clientY);
         });
 
         element.addEventListener('touchend', function(event) {
-            event.preventDefault(); // Prevenir comportamento padrão
+            event.preventDefault();
             endDrag();
         });
 
