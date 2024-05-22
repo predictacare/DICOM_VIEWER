@@ -72,7 +72,7 @@
         let currentImageIndex = 0;
         const imageIds = [];
         const imageCache = {}; // Cache para imagens pré-carregadas
-        const bufferSize = 5; // Número de imagens para pré-carregar ao redor da imagem atual
+        const bufferSize = 10; // Número de imagens para pré-carregar ao redor da imagem atual
 
         fetch(folderPath)
             .then(response => response.text())
