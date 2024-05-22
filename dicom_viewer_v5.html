@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador de Imagens DICOM</title>
+    <script src="https://unpkg.com/dicom-parser/dist/dicomParser.js"></script>
+    <script src="https://unpkg.com/cornerstone-core@2.3.0/dist/cornerstone.js"></script>
+    <script src="https://unpkg.com/cornerstone-wado-image-loader@3.0.0/dist/cornerstoneWADOImageLoader.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.3.0/nouislider.min.css">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #dicomImage {
+            width: 90vw;
+            height: 70vh;
+            border: 1px solid black;
+            margin-top: 10px; /* Adiciona uma pequena margem superior */
+        }
+        #sliderContainer {
+            width: 90vw;
+            margin: 10px auto;
+        }
+        #ww-wl-label {
+            margin-top: 20px;
+            font-size: 18px;
+            text-align: center;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1></h1>
+    <div id="dicomImage"></div>
+    <div id="sliderContainer">
+        <div id="dicomSlider"></div>
+    </div>
+    <div id="ww-wl-label">WW/WL = 0/0</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/noUiSlider/15.3.0/nouislider.min.js"></script>
+    <script>
+        function getQueryParams() {
+            const params = {};
+            const queryString = window.location.search.substring(1);
+            const regex = /([^&=]+)=([^&]*)/g;
+            let m;
+            while (m = regex.exec(queryString)) {
+                params[decodeURIComponent(m[1])] = decodeURIComponent(m[2]);
+            }
+            return params;
+        }
+
+        const params = getQueryParams();
+        const folderPath = params.folderPath || 'http://localhost:8000/';
+
+        cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+        cornerstoneWADOImageLoader.configure({
+            beforeSend: function(xhr) {
+                xhr.setRequestHeader('Accept', 'image/jpeg');
+            }
+        });
+
+        const element = document.getElementById('dicomImage');
+        cornerstone.enable(element);
+
+        let currentImageIndex = 0;
+        const imageIds = [];
+        const imageCache = {}; // Cache para imagens pré-carregadas
+        const bufferSize = 5; // Número de imagens para pré-carregar ao redor da imagem atual
+
+        fetch(folderPath)
+            .then(response => response.text())
+            .then(data => {
+                const parser = new DOMParser();
+                const htmlDoc = parser.parseFromString(data, 'text/html');
+                const links = htmlDoc.querySelectorAll('a');
+                links.forEach(link => {
+                    const href = link.getAttribute('href');
+                    if (href.endsWith('.dcm')) {
+                        imageIds.push('wadouri:' + folderPath + href);
+                    }
+                });
+
+                loadImage(imageIds[currentImageIndex]);
+                setupSlider();
+                preloadImages(currentImageIndex);
+            })
+            .catch(error => console.error('Erro ao carregar imagens DICOM:', error));
+
+        function loadImage(imageId) {
+            if (imageCache[imageId]) {
+                cornerstone.displayImage(element, imageCache[imageId]);
+
+                const canvas = document.querySelector('.cornerstone-canvas');
+                canvas.style.width = '100%';
+                canvas.style.height = '100%';
+
+                const viewport = cornerstone.getViewport(element);
+                updateWwWlLabel(viewport.voi.windowWidth, viewport.voi.windowCenter);
+            } else {
+                cornerstone.loadImage(imageId).then(function(image) {
+                    cornerstone.displayImage(element, image);
+                    imageCache[imageId] = image;
+
+                    const canvas = document.querySelector('.cornerstone-canvas');
+                    canvas.style.width = '100%';
+                    canvas.style.height = '100%';
+
+                    const viewport = cornerstone.getViewport(element);
+                    updateWwWlLabel(viewport.voi.windowWidth, viewport.voi.windowCenter);
+                }).catch(function(err) {
+                    console.error('Erro ao carregar a imagem DICOM:', err);
+                });
+            }
+        }
+
+        function preloadImages(centerIndex) {
+            const start = Math.max(0, centerIndex - bufferSize);
+            const end = Math.min(imageIds.length - 1, centerIndex + bufferSize);
+            for (let i = start; i <= end; i++) {
+                if (!imageCache[imageIds[i]]) {
+                    cornerstone.loadImage(imageIds[i]).then(image => {
+                        imageCache[imageIds[i]] = image;
+                    }).catch(err => {
+                        console.error('Erro ao pré-carregar a imagem DICOM:', err);
+                    });
+                }
+            }
+        }
+
+        function setupSlider() {
+            const dicomSlider = document.getElementById('dicomSlider');
+
+            noUiSlider.create(dicomSlider, {
+                start: [0],
+                range: {
+                    'min': 0,
+                    'max': imageIds.length - 1
+                },
+                step: 1,
+                connect: [true, false],
+                tooltips: [true],
+            });
+
+            dicomSlider.noUiSlider.on('slide', function(values, handle) {
+                currentImageIndex = parseInt(values[handle]);
+                loadImage(imageIds[currentImageIndex]);
+                preloadImages(currentImageIndex);
+            });
+        }
+
+        let isDragging = false;
+        let startX = 0;
+        let startY = 0;
+        let initialWC = 0;
+        let initialWW = 0;
+
+        const wwWlLabel = document.getElementById('ww-wl-label');
+
+        function startDrag(x, y) {
+            isDragging = true;
+            startX = x;
+            startY = y;
+
+            const viewport = cornerstone.getViewport(element);
+            initialWC = viewport.voi.windowCenter;
+            initialWW = viewport.voi.windowWidth;
+        }
+
+        function onMove(x, y) {
+            if (isDragging) {
+                const deltaX = startX - x;
+                const deltaY = startY - y;
+
+                const viewport = cornerstone.getViewport(element);
+                viewport.voi.windowCenter = initialWC + deltaY;
+                viewport.voi.windowWidth = initialWW + deltaX;
+                cornerstone.setViewport(element, viewport);
+
+                updateWwWlLabel(viewport.voi.windowWidth, viewport.voi.windowCenter);
+            }
+        }
+
+        function endDrag() {
+            isDragging = false;
+        }
+
+        element.addEventListener('mousedown', function(event) {
+            startDrag(event.clientX, event.clientY);
+            element.addEventListener('mousemove', onMouseMove);
+        });
+
+        element.addEventListener('mouseup', function() {
+            endDrag();
+            element.removeEventListener('mousemove', onMouseMove);
+        });
+
+        function onMouseMove(event) {
+            onMove(event.clientX, event.clientY);
+        }
+
+        element.addEventListener('touchstart', function(event) {
+            event.preventDefault();
+            const touch = event.touches[0];
+            startDrag(touch.clientX, touch.clientY);
+        });
+
+        element.addEventListener('touchmove', function(event) {
+            event.preventDefault();
+            const touch = event.touches[0];
+            onMove(touch.clientX, touch.clientY);
+        });
+
+        element.addEventListener('touchend', function(event) {
+            event.preventDefault();
+            endDrag();
+        });
+
+        function updateWwWlLabel(ww, wl) {
+            wwWlLabel.textContent = `WW/WL = ${Math.round(ww)}/${Math.round(wl)}`;
+        }
+    </script>
+</body>
+</html>
